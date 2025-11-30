@@ -46,8 +46,39 @@ export default function Home() {
   const unansweredWords = getUnansweredWords();
   const currentWord = unansweredWords[currentWordIndex];
   const totalWords = words.length;
-  const answeredWords = progress.filter(p => p.status === 'ok').length;
-  const progressPercentage = totalWords > 0 ? Math.round((answeredWords / totalWords) * 100) : 0;
+  
+  // 進捗統計を計算
+  const progressMap = new Map(progress.map(p => [p.wordId, p.status]));
+  const okCount = progress.filter(p => p.status === 'ok').length;
+  const ngCount = progress.filter(p => p.status === 'ng').length;
+  const unknownCount = totalWords - okCount - ngCount;
+  
+  const okPercentage = totalWords > 0 ? (okCount / totalWords) * 100 : 0;
+  const ngPercentage = totalWords > 0 ? (ngCount / totalWords) * 100 : 0;
+  const unknownPercentage = totalWords > 0 ? (unknownCount / totalWords) * 100 : 0;
+  
+  const progressPercentage = totalWords > 0 ? Math.round((okCount / totalWords) * 100) : 0;
+  
+  // 円弧の計算用ヘルパー関数
+  const getArcPath = (startAngle: number, endAngle: number, radius: number, centerX: number, centerY: number) => {
+    const start = polarToCartesian(centerX, centerY, radius, endAngle);
+    const end = polarToCartesian(centerX, centerY, radius, startAngle);
+    const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
+    return `M ${centerX} ${centerY} L ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArcFlag} 0 ${end.x} ${end.y} Z`;
+  };
+  
+  const polarToCartesian = (centerX: number, centerY: number, radius: number, angleInDegrees: number) => {
+    const angleInRadians = (angleInDegrees - 90) * Math.PI / 180.0;
+    return {
+      x: centerX + (radius * Math.cos(angleInRadians)),
+      y: centerY + (radius * Math.sin(angleInRadians))
+    };
+  };
+  
+  // 各セグメントの角度を計算（0度から時計回り）
+  const okAngle = okPercentage * 3.6; // 100% = 360度
+  const ngAngle = ngPercentage * 3.6;
+  const unknownAngle = unknownPercentage * 3.6;
 
   const handleOK = () => {
     if (!currentWord) return;
@@ -129,22 +160,110 @@ export default function Home() {
           </div>
         </div>
 
-        {/* 進捗バー */}
+        {/* 進捗ゲージ */}
         <div className="mb-6 bg-white rounded-2xl shadow-lg p-4 sm:p-6">
-          <div className="flex justify-between items-center mb-2">
-            <span className="text-sm sm:text-base font-medium text-gray-700">進捗</span>
-            <span className="text-sm sm:text-base font-bold text-purple-600">
-              {progressPercentage}%
-            </span>
-          </div>
-          <div className="w-full bg-gray-200 rounded-full h-4 sm:h-5 overflow-hidden">
-            <div
-              className="bg-gradient-to-r from-purple-400 to-pink-400 h-full rounded-full transition-all duration-500 ease-out"
-              style={{ width: `${progressPercentage}%` }}
-            />
-          </div>
-          <div className="mt-2 text-xs sm:text-sm text-gray-500 text-center">
-            {answeredWords} / {totalWords} 単語をマスター
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            {/* 円形ゲージ */}
+            <div className="relative flex-shrink-0">
+              <svg width="160" height="160" viewBox="0 0 160 160">
+                {/* 背景円 */}
+                <circle
+                  cx="80"
+                  cy="80"
+                  r="70"
+                  fill="none"
+                  stroke="#e5e7eb"
+                  strokeWidth="12"
+                />
+                {/* OK（緑）- 最初のセグメント（0度から） */}
+                {okPercentage > 0 && (
+                  <path
+                    d={getArcPath(0, okAngle, 70, 80, 80)}
+                    fill="#4ade80"
+                    className="transition-all duration-500 ease-out"
+                  />
+                )}
+                {/* NG（赤）- OKの後に続く */}
+                {ngPercentage > 0 && (
+                  <path
+                    d={getArcPath(okAngle, okAngle + ngAngle, 70, 80, 80)}
+                    fill="#f87171"
+                    className="transition-all duration-500 ease-out"
+                  />
+                )}
+                {/* 未回答（グレー）- NGの後に続く */}
+                {unknownPercentage > 0 && (
+                  <path
+                    d={getArcPath(okAngle + ngAngle, okAngle + ngAngle + unknownAngle, 70, 80, 80)}
+                    fill="#9ca3af"
+                    className="transition-all duration-500 ease-out"
+                  />
+                )}
+                {/* 内側の円（白）で中央をくり抜く */}
+                <circle
+                  cx="80"
+                  cy="80"
+                  r="58"
+                  fill="white"
+                />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="text-center">
+                  <div className="text-2xl sm:text-3xl font-bold text-gray-800">
+                    {progressPercentage}%
+                  </div>
+                  <div className="text-xs text-gray-500">マスター</div>
+                </div>
+              </div>
+            </div>
+            
+            {/* 凡例と統計 */}
+            <div className="flex-1 w-full sm:w-auto">
+              <div className="space-y-2 sm:space-y-3">
+                {/* OK */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded-full bg-green-400"></div>
+                    <span className="text-sm sm:text-base text-gray-700">OK</span>
+                  </div>
+                  <div className="text-sm sm:text-base font-semibold text-gray-800">
+                    {okCount} ({Math.round(okPercentage)}%)
+                  </div>
+                </div>
+                
+                {/* NG */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded-full bg-red-400"></div>
+                    <span className="text-sm sm:text-base text-gray-700">NG</span>
+                  </div>
+                  <div className="text-sm sm:text-base font-semibold text-gray-800">
+                    {ngCount} ({Math.round(ngPercentage)}%)
+                  </div>
+                </div>
+                
+                {/* 未回答 */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded-full bg-gray-400"></div>
+                    <span className="text-sm sm:text-base text-gray-700">未回答</span>
+                  </div>
+                  <div className="text-sm sm:text-base font-semibold text-gray-800">
+                    {unknownCount} ({Math.round(unknownPercentage)}%)
+                  </div>
+                </div>
+                
+                {/* 合計 */}
+                <div className="pt-2 border-t border-gray-200">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm sm:text-base font-medium text-gray-700">合計</span>
+                    <span className="text-sm sm:text-base font-bold text-gray-800">
+                      {totalWords} 単語
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
