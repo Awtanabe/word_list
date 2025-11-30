@@ -60,13 +60,6 @@ export default function Home() {
   const progressPercentage = totalWords > 0 ? Math.round((okCount / totalWords) * 100) : 0;
   
   // 円弧の計算用ヘルパー関数
-  const getArcPath = (startAngle: number, endAngle: number, radius: number, centerX: number, centerY: number) => {
-    const start = polarToCartesian(centerX, centerY, radius, endAngle);
-    const end = polarToCartesian(centerX, centerY, radius, startAngle);
-    const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
-    return `M ${centerX} ${centerY} L ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArcFlag} 0 ${end.x} ${end.y} Z`;
-  };
-  
   const polarToCartesian = (centerX: number, centerY: number, radius: number, angleInDegrees: number) => {
     const angleInRadians = (angleInDegrees - 90) * Math.PI / 180.0;
     return {
@@ -75,35 +68,87 @@ export default function Home() {
     };
   };
   
+  const getArcPath = (startAngle: number, endAngle: number, radius: number, centerX: number, centerY: number) => {
+    if (endAngle - startAngle >= 360) {
+      // 完全な円の場合
+      return `M ${centerX} ${centerY} m -${radius}, 0 a ${radius},${radius} 0 1,0 ${radius * 2},0 a ${radius},${radius} 0 1,0 -${radius * 2},0`;
+    }
+    const start = polarToCartesian(centerX, centerY, radius, startAngle);
+    const end = polarToCartesian(centerX, centerY, radius, endAngle);
+    const largeArcFlag = endAngle - startAngle > 180 ? "1" : "0";
+    return `M ${centerX} ${centerY} L ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${end.x} ${end.y} Z`;
+  };
+  
   // 各セグメントの角度を計算（0度から時計回り）
-  const okAngle = okPercentage * 3.6; // 100% = 360度
-  const ngAngle = ngPercentage * 3.6;
-  const unknownAngle = unknownPercentage * 3.6;
+  const radius = 70;
+  const minVisibleAngle = 2; // 最小表示角度（度）- 0.5%以上は視認できるように
+  
+  // 実際の角度を計算
+  let okAngle = okPercentage * 3.6; // 100% = 360度
+  let ngAngle = ngPercentage * 3.6;
+  let unknownAngle = unknownPercentage * 3.6;
+  
+  // 最小表示角度を適用（0より大きく、かつ最小角度未満の場合は最小角度にする）
+  if (okCount > 0 && okAngle > 0 && okAngle < minVisibleAngle) {
+    okAngle = minVisibleAngle;
+  }
+  if (ngCount > 0 && ngAngle > 0 && ngAngle < minVisibleAngle) {
+    ngAngle = minVisibleAngle;
+  }
+  
+  // 未回答の角度を調整（合計が360度になるように）
+  const totalAngle = okAngle + ngAngle + unknownAngle;
+  if (totalAngle > 360) {
+    // 超過分を未回答から減らす
+    unknownAngle = Math.max(0, unknownAngle - (totalAngle - 360));
+  } else if (totalAngle < 360 && unknownCount > 0) {
+    // 不足分を未回答に追加
+    unknownAngle = 360 - okAngle - ngAngle;
+  }
+  
+  // 各セグメントの開始角度（12時の位置から開始）
+  const startAngle = 0;
 
   const handleOK = () => {
     if (!currentWord) return;
     updateWordStatus(currentWord.id, 'ok');
-    setProgress(getProgress());
+    const newProgress = getProgress();
+    setProgress(newProgress);
     setShowMeaning(false);
     
-    if (currentWordIndex < unansweredWords.length - 1) {
-      setCurrentWordIndex(currentWordIndex + 1);
-    } else {
-      setCurrentWordIndex(0);
-    }
+    // 次の単語に移動
+    setTimeout(() => {
+      const newUnanswered = words.filter(word => {
+        const status = newProgress.find(p => p.wordId === word.id)?.status;
+        return status === 'unknown' || status === 'ng' || !status;
+      });
+      if (currentWordIndex < newUnanswered.length - 1) {
+        setCurrentWordIndex(currentWordIndex + 1);
+      } else {
+        setCurrentWordIndex(0);
+      }
+    }, 100);
   };
 
   const handleNG = () => {
     if (!currentWord) return;
     updateWordStatus(currentWord.id, 'ng');
-    setProgress(getProgress());
+    const newProgress = getProgress();
+    setProgress(newProgress);
     setShowMeaning(false);
     
-    if (currentWordIndex < unansweredWords.length - 1) {
-      setCurrentWordIndex(currentWordIndex + 1);
-    } else {
-      setCurrentWordIndex(0);
-    }
+    // 次の単語に移動
+    setTimeout(() => {
+      const newUnanswered = words.filter(word => {
+        const status = newProgress.find(p => p.wordId === word.id)?.status;
+        return status === 'unknown' || status === 'ng' || !status;
+      });
+      if (currentWordIndex < newUnanswered.length - 1) {
+        setCurrentWordIndex(currentWordIndex + 1);
+      } else {
+        setCurrentWordIndex(0);
+      }
+    }, 100);
   };
 
   const handleReset = () => {
@@ -170,31 +215,31 @@ export default function Home() {
                 <circle
                   cx="80"
                   cy="80"
-                  r="70"
+                  r={radius}
                   fill="none"
                   stroke="#e5e7eb"
                   strokeWidth="12"
                 />
-                {/* OK（緑）- 最初のセグメント（0度から） */}
-                {okPercentage > 0 && (
+                {/* OK（緑）- 最初のセグメント */}
+                {okAngle > 0 && (
                   <path
-                    d={getArcPath(0, okAngle, 70, 80, 80)}
+                    d={getArcPath(startAngle, startAngle + okAngle, radius, 80, 80)}
                     fill="#4ade80"
                     className="transition-all duration-500 ease-out"
                   />
                 )}
                 {/* NG（赤）- OKの後に続く */}
-                {ngPercentage > 0 && (
+                {ngAngle > 0 && (
                   <path
-                    d={getArcPath(okAngle, okAngle + ngAngle, 70, 80, 80)}
+                    d={getArcPath(startAngle + okAngle, startAngle + okAngle + ngAngle, radius, 80, 80)}
                     fill="#f87171"
                     className="transition-all duration-500 ease-out"
                   />
                 )}
                 {/* 未回答（グレー）- NGの後に続く */}
-                {unknownPercentage > 0 && (
+                {unknownAngle > 0 && (
                   <path
-                    d={getArcPath(okAngle + ngAngle, okAngle + ngAngle + unknownAngle, 70, 80, 80)}
+                    d={getArcPath(startAngle + okAngle + ngAngle, startAngle + okAngle + ngAngle + unknownAngle, radius, 80, 80)}
                     fill="#9ca3af"
                     className="transition-all duration-500 ease-out"
                   />
