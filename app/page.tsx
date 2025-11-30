@@ -1,32 +1,34 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { parseWordsFromFile } from '@/lib/parseWords';
 import { 
   getProgress, 
-  updateWordStatus, 
   resetProgress, 
-  initializeProgress 
+  initializeProgress,
+  getDailyAnsweredRecords,
+  getTotalAnsweredCount
 } from '@/lib/storage';
-import type { Word } from '@/lib/parseWords';
 import type { WordProgress } from '@/lib/storage';
+import type { DailyAnsweredRecord } from '@/lib/storage';
 
-export default function Home() {
-  const [words, setWords] = useState<Word[]>([]);
-  const [currentWordIndex, setCurrentWordIndex] = useState(0);
-  const [showMeaning, setShowMeaning] = useState(false);
+export default function Dashboard() {
+  const router = useRouter();
+  const [words, setWords] = useState<any[]>([]);
   const [progress, setProgress] = useState<WordProgress[]>([]);
+  const [dailyAnsweredRecords, setDailyAnsweredRecords] = useState<DailyAnsweredRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // クライアント側でデータを読み込む
     fetch('/api/words')
       .then(res => res.json())
       .then(data => {
         setWords(data);
-        const wordIds = data.map((w: Word) => w.id);
+        const wordIds = data.map((w: any) => w.id);
         initializeProgress(wordIds);
         setProgress(getProgress());
+        setDailyAnsweredRecords(getDailyAnsweredRecords());
         setIsLoading(false);
       })
       .catch(err => {
@@ -35,20 +37,8 @@ export default function Home() {
       });
   }, []);
 
-  const getUnansweredWords = useCallback(() => {
-    const progressMap = new Map(progress.map(p => [p.wordId, p.status]));
-    return words.filter(word => {
-      const status = progressMap.get(word.id);
-      return status === 'unknown' || status === 'ng' || !status;
-    });
-  }, [words, progress]);
-
-  const unansweredWords = getUnansweredWords();
-  const currentWord = unansweredWords[currentWordIndex];
-  const totalWords = words.length;
-  
   // 進捗統計を計算
-  const progressMap = new Map(progress.map(p => [p.wordId, p.status]));
+  const totalWords = words.length;
   const okCount = progress.filter(p => p.status === 'ok').length;
   const ngCount = progress.filter(p => p.status === 'ng').length;
   const unknownCount = totalWords - okCount - ngCount;
@@ -58,7 +48,8 @@ export default function Home() {
   const unknownPercentage = totalWords > 0 ? (unknownCount / totalWords) * 100 : 0;
   
   const progressPercentage = totalWords > 0 ? Math.round((okCount / totalWords) * 100) : 0;
-  
+  const totalAnswered = getTotalAnsweredCount();
+
   // 円弧の計算用ヘルパー関数
   const polarToCartesian = (centerX: number, centerY: number, radius: number, angleInDegrees: number) => {
     const angleInRadians = (angleInDegrees - 90) * Math.PI / 180.0;
@@ -70,7 +61,6 @@ export default function Home() {
   
   const getArcPath = (startAngle: number, endAngle: number, radius: number, centerX: number, centerY: number) => {
     if (endAngle - startAngle >= 360) {
-      // 完全な円の場合
       return `M ${centerX} ${centerY} m -${radius}, 0 a ${radius},${radius} 0 1,0 ${radius * 2},0 a ${radius},${radius} 0 1,0 -${radius * 2},0`;
     }
     const start = polarToCartesian(centerX, centerY, radius, startAngle);
@@ -79,16 +69,14 @@ export default function Home() {
     return `M ${centerX} ${centerY} L ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${end.x} ${end.y} Z`;
   };
   
-  // 各セグメントの角度を計算（0度から時計回り）
+  // 各セグメントの角度を計算
   const radius = 70;
-  const minVisibleAngle = 2; // 最小表示角度（度）- 0.5%以上は視認できるように
+  const minVisibleAngle = 2;
   
-  // 実際の角度を計算
-  let okAngle = okPercentage * 3.6; // 100% = 360度
+  let okAngle = okPercentage * 3.6;
   let ngAngle = ngPercentage * 3.6;
   let unknownAngle = unknownPercentage * 3.6;
   
-  // 最小表示角度を適用（0より大きく、かつ最小角度未満の場合は最小角度にする）
   if (okCount > 0 && okAngle > 0 && okAngle < minVisibleAngle) {
     okAngle = minVisibleAngle;
   }
@@ -96,84 +84,55 @@ export default function Home() {
     ngAngle = minVisibleAngle;
   }
   
-  // 未回答の角度を調整（合計が360度になるように）
   const totalAngle = okAngle + ngAngle + unknownAngle;
   if (totalAngle > 360) {
-    // 超過分を未回答から減らす
     unknownAngle = Math.max(0, unknownAngle - (totalAngle - 360));
   } else if (totalAngle < 360 && unknownCount > 0) {
-    // 不足分を未回答に追加
     unknownAngle = 360 - okAngle - ngAngle;
   }
   
-  // 各セグメントの開始角度（12時の位置から開始）
   const startAngle = 0;
 
-  const handleOK = () => {
-    if (!currentWord) return;
-    updateWordStatus(currentWord.id, 'ok');
-    const newProgress = getProgress();
-    setProgress(newProgress);
-    setShowMeaning(false);
-    
-    // 次の単語に移動
-    setTimeout(() => {
-      const newUnanswered = words.filter(word => {
-        const status = newProgress.find(p => p.wordId === word.id)?.status;
-        return status === 'unknown' || status === 'ng' || !status;
-      });
-      if (currentWordIndex < newUnanswered.length - 1) {
-        setCurrentWordIndex(currentWordIndex + 1);
-      } else {
-        setCurrentWordIndex(0);
-      }
-    }, 100);
+  // 折れ線グラフ用データ（過去7日間）
+  const getLast7Days = () => {
+    const days = [];
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      days.push(date.toISOString().split('T')[0]);
+    }
+    return days;
   };
 
-  const handleNG = () => {
-    if (!currentWord) return;
-    updateWordStatus(currentWord.id, 'ng');
-    const newProgress = getProgress();
-    setProgress(newProgress);
-    setShowMeaning(false);
-    
-    // 次の単語に移動
-    setTimeout(() => {
-      const newUnanswered = words.filter(word => {
-        const status = newProgress.find(p => p.wordId === word.id)?.status;
-        return status === 'unknown' || status === 'ng' || !status;
-      });
-      if (currentWordIndex < newUnanswered.length - 1) {
-        setCurrentWordIndex(currentWordIndex + 1);
-      } else {
-        setCurrentWordIndex(0);
-      }
-    }, 100);
-  };
+  const last7Days = getLast7Days();
+  const chartData = last7Days.map(date => {
+    const record = dailyAnsweredRecords.find(r => r.date === date);
+    return {
+      date,
+      count: record ? record.count : 0,
+      displayDate: new Date(date).toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' })
+    };
+  });
+
+  // デバッグ用：データの確認
+  if (process.env.NODE_ENV === 'development') {
+    console.log('Daily answered records:', dailyAnsweredRecords);
+    console.log('Chart data:', chartData);
+  }
+
+  const maxCount = Math.max(...chartData.map(d => d.count), 0);
+  // Y軸の最大値は、データの最大値に基づいて設定
+  // maxCountが0の場合は1に設定（グラフの表示のため）
+  const displayMaxCount = maxCount === 0 ? 1 : maxCount;
 
   const handleReset = () => {
     if (confirm('進捗をリセットしますか？')) {
       resetProgress();
-      const wordIds = words.map(w => w.id);
-      initializeProgress(wordIds);
+      const wordIds = words.map((w: any) => w.id);
+      initializeProgress(wordIds, true); // リセットフラグをtrueに
       setProgress(getProgress());
-      setCurrentWordIndex(0);
-      setShowMeaning(false);
+      setDailyAnsweredRecords(getDailyAnsweredRecords());
     }
-  };
-
-  const speakWord = (text: string, lang: string = 'en-US') => {
-    if ('speechSynthesis' in window) {
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = lang;
-      utterance.rate = 0.9;
-      utterance.pitch = 1;
-      window.speechSynthesis.speak(utterance);
-    }
-  };
-
-  const handleShowMeaning = () => {
-    setShowMeaning(true);
   };
 
   if (isLoading) {
@@ -184,25 +143,14 @@ export default function Home() {
     );
   }
 
-  if (words.length === 0) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-50 to-pink-50">
-        <div className="text-2xl text-gray-600">単語データが見つかりません</div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 via-pink-50 to-purple-50 py-4 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-2xl mx-auto">
+      <div className="max-w-4xl mx-auto">
         {/* ヘッダー */}
         <div className="mb-6 text-center">
           <h1 className="text-3xl sm:text-4xl font-bold text-gray-800 mb-2">
             📚 英単語アプリ
           </h1>
-          <div className="text-sm sm:text-base text-gray-600">
-            残り: {unansweredWords.length} / {totalWords} 単語
-          </div>
         </div>
 
         {/* 進捗ゲージ */}
@@ -211,7 +159,6 @@ export default function Home() {
             {/* 円形ゲージ */}
             <div className="relative flex-shrink-0">
               <svg width="160" height="160" viewBox="0 0 160 160">
-                {/* 背景円 */}
                 <circle
                   cx="80"
                   cy="80"
@@ -220,7 +167,6 @@ export default function Home() {
                   stroke="#e5e7eb"
                   strokeWidth="12"
                 />
-                {/* OK（緑）- 最初のセグメント */}
                 {okAngle > 0 && (
                   <path
                     d={getArcPath(startAngle, startAngle + okAngle, radius, 80, 80)}
@@ -228,7 +174,6 @@ export default function Home() {
                     className="transition-all duration-500 ease-out"
                   />
                 )}
-                {/* NG（赤）- OKの後に続く */}
                 {ngAngle > 0 && (
                   <path
                     d={getArcPath(startAngle + okAngle, startAngle + okAngle + ngAngle, radius, 80, 80)}
@@ -236,7 +181,6 @@ export default function Home() {
                     className="transition-all duration-500 ease-out"
                   />
                 )}
-                {/* 未回答（グレー）- NGの後に続く */}
                 {unknownAngle > 0 && (
                   <path
                     d={getArcPath(startAngle + okAngle + ngAngle, startAngle + okAngle + ngAngle + unknownAngle, radius, 80, 80)}
@@ -244,7 +188,6 @@ export default function Home() {
                     className="transition-all duration-500 ease-out"
                   />
                 )}
-                {/* 内側の円（白）で中央をくり抜く */}
                 <circle
                   cx="80"
                   cy="80"
@@ -265,7 +208,6 @@ export default function Home() {
             {/* 凡例と統計 */}
             <div className="flex-1 w-full sm:w-auto">
               <div className="space-y-2 sm:space-y-3">
-                {/* OK */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <div className="w-4 h-4 rounded-full bg-green-400"></div>
@@ -276,7 +218,6 @@ export default function Home() {
                   </div>
                 </div>
                 
-                {/* NG */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <div className="w-4 h-4 rounded-full bg-red-400"></div>
@@ -287,7 +228,6 @@ export default function Home() {
                   </div>
                 </div>
                 
-                {/* 未回答 */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <div className="w-4 h-4 rounded-full bg-gray-400"></div>
@@ -298,7 +238,6 @@ export default function Home() {
                   </div>
                 </div>
                 
-                {/* 合計 */}
                 <div className="pt-2 border-t border-gray-200">
                   <div className="flex items-center justify-between">
                     <span className="text-sm sm:text-base font-medium text-gray-700">合計</span>
@@ -312,99 +251,102 @@ export default function Home() {
           </div>
         </div>
 
-        {/* フラッシュカード */}
-        {unansweredWords.length > 0 ? (
-          <div className="bg-white rounded-2xl shadow-xl p-6 sm:p-8 mb-6 min-h-[300px] sm:min-h-[400px] flex flex-col justify-between">
-            <div className="flex-1 flex flex-col justify-center items-center">
-              <div className="text-lg sm:text-xl text-gray-500 mb-4">
-                単語 {currentWordIndex + 1} / {unansweredWords.length}
+        {/* 折れ線グラフ（過去7日間のNG回数） */}
+        <div className="mb-6 bg-white rounded-2xl shadow-lg p-4 sm:p-6 relative">
+          <div className="flex justify-between items-start mb-4">
+            <h2 className="text-lg sm:text-xl font-bold text-gray-800">
+              過去7日間の回答数
+            </h2>
+            {/* 累計回答数 - 右端上に表示 */}
+            <div className="text-right">
+              <div className="text-xs sm:text-sm text-gray-600">累計回答数</div>
+              <div className="text-xl sm:text-2xl font-bold text-purple-600">
+                {totalAnswered}
               </div>
-              
-              <div className="text-3xl sm:text-4xl md:text-5xl font-bold text-gray-800 mb-6 text-center break-words">
-                {currentWord?.word}
-              </div>
-
-              {showMeaning ? (
-                <div className="w-full">
-                  <div className="text-xl sm:text-2xl text-gray-700 mb-6 text-center break-words px-4">
-                    {currentWord?.meaning}
+              <div className="text-xs text-gray-500">単語</div>
+            </div>
+          </div>
+          <div className="relative">
+            {/* Y軸ラベル */}
+            <div className="absolute left-0 top-0 bottom-8 flex flex-col justify-between text-xs text-gray-500 pr-2">
+              {(() => {
+                // データがすべて0の場合は0のみ表示
+                if (maxCount === 0) {
+                  return [0].map((value, idx) => (
+                    <div key={idx} className="text-right">{value}</div>
+                  ));
+                }
+                // Y軸の目盛りを計算
+                let yAxisLabels: number[];
+                if (displayMaxCount <= 5) {
+                  // 小さい値の場合は0からmaxCountまでの整数を表示
+                  yAxisLabels = Array.from({ length: displayMaxCount + 1 }, (_, i) => displayMaxCount - i);
+                } else {
+                  // 大きい値の場合は4分割
+                  const steps = [
+                    displayMaxCount,
+                    Math.max(0, Math.ceil(displayMaxCount * 0.75)),
+                    Math.max(0, Math.ceil(displayMaxCount * 0.5)),
+                    Math.max(0, Math.ceil(displayMaxCount * 0.25)),
+                    0
+                  ];
+                  // 重複を除去して降順にソート
+                  yAxisLabels = Array.from(new Set(steps)).sort((a, b) => b - a);
+                }
+                return yAxisLabels.map((value, idx) => (
+                  <div key={idx} className="text-right">{value}</div>
+                ));
+              })()}
+            </div>
+            {/* グラフエリア */}
+            <div className="h-48 sm:h-64 ml-8 flex items-end justify-between gap-2 pb-8">
+              {chartData.map((data, index) => {
+                const heightPercent = displayMaxCount > 0 ? (data.count / displayMaxCount) * 100 : 0;
+                return (
+                  <div key={data.date} className="flex-1 flex flex-col items-center gap-2 h-full">
+                    <div className="relative w-full h-full flex items-end">
+                      {data.count > 0 && (
+                        <div
+                          className="w-full bg-blue-400 rounded-t transition-all duration-500 ease-out hover:bg-blue-500"
+                          style={{ 
+                            height: `${heightPercent}%`,
+                            minHeight: '4px'
+                          }}
+                          title={`${data.date}: ${data.count}回`}
+                        />
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-600 text-center">
+                      {data.displayDate}
+                    </div>
+                    {data.count > 0 && (
+                      <div className="text-xs font-semibold text-blue-600">
+                        {data.count}
+                      </div>
+                    )}
                   </div>
-                  <div className="flex gap-3 sm:gap-4 justify-center">
-                    <button
-                      onClick={handleNG}
-                      className="px-6 sm:px-8 py-3 sm:py-4 bg-red-400 hover:bg-red-500 text-white rounded-xl font-semibold text-base sm:text-lg shadow-lg transition-all transform hover:scale-105 active:scale-95"
-                    >
-                      ❌ NG
-                    </button>
-                    <button
-                      onClick={handleOK}
-                      className="px-6 sm:px-8 py-3 sm:py-4 bg-green-400 hover:bg-green-500 text-white rounded-xl font-semibold text-base sm:text-lg shadow-lg transition-all transform hover:scale-105 active:scale-95"
-                    >
-                      ✅ OK
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  onClick={handleShowMeaning}
-                  className="px-6 sm:px-8 py-3 sm:py-4 bg-blue-400 hover:bg-blue-500 text-white rounded-xl font-semibold text-base sm:text-lg shadow-lg transition-all transform hover:scale-105 active:scale-95"
-                >
-                  意味を表示
-                </button>
-              )}
+                );
+              })}
             </div>
+          </div>
+        </div>
 
-            {/* 音声ボタン */}
-            <div className="flex gap-3 sm:gap-4 justify-center mt-6">
-              <button
-                onClick={() => currentWord && speakWord(currentWord.word)}
-                className="px-4 sm:px-6 py-2 sm:py-3 bg-purple-300 hover:bg-purple-400 text-white rounded-lg text-sm sm:text-base shadow-md transition-all transform hover:scale-105 active:scale-95"
-                title="単語を読み上げ"
-              >
-                🔊 単語
-              </button>
-              {showMeaning && (
-                <button
-                  onClick={() => currentWord && speakWord(currentWord.meaning)}
-                  className="px-4 sm:px-6 py-2 sm:py-3 bg-pink-300 hover:bg-pink-400 text-white rounded-lg text-sm sm:text-base shadow-md transition-all transform hover:scale-105 active:scale-95"
-                  title="意味を読み上げ"
-                >
-                  🔊 意味
-                </button>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="bg-white rounded-2xl shadow-xl p-8 sm:p-12 text-center">
-            <div className="text-4xl sm:text-6xl mb-4">🎉</div>
-            <div className="text-2xl sm:text-3xl font-bold text-gray-800 mb-4">
-              おめでとうございます！
-            </div>
-            <div className="text-lg sm:text-xl text-gray-600 mb-6">
-              すべての単語を学習しました
-            </div>
-            <button
-              onClick={handleReset}
-              className="px-6 sm:px-8 py-3 sm:py-4 bg-purple-400 hover:bg-purple-500 text-white rounded-xl font-semibold text-base sm:text-lg shadow-lg transition-all transform hover:scale-105 active:scale-95"
-            >
-              リセットして最初から
-            </button>
-          </div>
-        )}
-
-        {/* リセットボタン */}
-        {unansweredWords.length > 0 && (
-          <div className="text-center">
-            <button
-              onClick={handleReset}
-              className="px-4 sm:px-6 py-2 sm:py-3 bg-gray-300 hover:bg-gray-400 text-gray-700 rounded-lg text-sm sm:text-base shadow-md transition-all transform hover:scale-105 active:scale-95"
-            >
-              🔄 進捗をリセット
-            </button>
-          </div>
-        )}
+        {/* ボタンエリア */}
+        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center items-center">
+          <button
+            onClick={() => router.push('/quiz')}
+            className="px-6 sm:px-8 py-3 sm:py-4 bg-blue-500 hover:bg-blue-600 text-white rounded-xl font-semibold text-base sm:text-lg shadow-lg transition-all transform hover:scale-105 active:scale-95"
+          >
+            🎯 単語テストを開始
+          </button>
+          <button
+            onClick={handleReset}
+            className="px-4 sm:px-6 py-2 sm:py-3 bg-gray-300 hover:bg-gray-400 text-gray-700 rounded-lg text-sm sm:text-base shadow-md transition-all transform hover:scale-105 active:scale-95"
+          >
+            🔄 進捗をリセット
+          </button>
+        </div>
       </div>
     </div>
   );
 }
-
