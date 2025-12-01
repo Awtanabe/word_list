@@ -23,6 +23,23 @@ export default function Quiz() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    // 音声エンジンを事前に読み込む（精度向上のため）
+    if ('speechSynthesis' in window) {
+      // 音声リストを取得（非同期で読み込まれるため）
+      const loadVoices = () => {
+        const voices = window.speechSynthesis.getVoices();
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Available voices:', voices.filter(v => v.lang.startsWith('en')));
+        }
+      };
+      
+      // 音声が読み込まれたら実行
+      if (window.speechSynthesis.onvoiceschanged !== undefined) {
+        window.speechSynthesis.onvoiceschanged = loadVoices;
+      }
+      loadVoices(); // 既に読み込まれている場合
+    }
+
     fetch('/api/words')
       .then(res => res.json())
       .then(data => {
@@ -121,10 +138,39 @@ export default function Quiz() {
 
   const speakWord = (text: string, lang: string = 'en-US') => {
     if ('speechSynthesis' in window) {
+      // 既存の音声を停止
+      window.speechSynthesis.cancel();
+      
+      // 音声合成の設定を改善
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = lang;
-      utterance.rate = 0.9;
+      utterance.rate = 0.85; // 少し遅めに設定（精度向上）
       utterance.pitch = 1;
+      utterance.volume = 1;
+      
+      // より精度の高い音声エンジンを選択（利用可能な場合）
+      const voices = window.speechSynthesis.getVoices();
+      const preferredVoices = voices.filter(voice => 
+        voice.lang.startsWith('en') && 
+        (voice.name.includes('Google') || voice.name.includes('Microsoft') || voice.name.includes('Enhanced'))
+      );
+      
+      if (preferredVoices.length > 0) {
+        // 優先度の高い音声を選択
+        utterance.voice = preferredVoices[0];
+      } else {
+        // 英語の音声を探す
+        const englishVoices = voices.filter(voice => voice.lang.startsWith('en'));
+        if (englishVoices.length > 0) {
+          utterance.voice = englishVoices[0];
+        }
+      }
+      
+      // エラーハンドリング
+      utterance.onerror = (event) => {
+        console.error('Speech synthesis error:', event);
+      };
+      
       window.speechSynthesis.speak(utterance);
     }
   };
