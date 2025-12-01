@@ -107,10 +107,13 @@ export default function Dashboard() {
   const last30Days = getLast30Days();
   const chartData = last30Days.map(date => {
     const record = dailyAnsweredRecords.find(r => r.date === date);
+    const dateObj = new Date(date);
+    const month = dateObj.getMonth() + 1;
+    const day = dateObj.getDate();
     return {
       date,
       count: record ? record.count : 0,
-      displayDate: new Date(date).toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' })
+      displayDate: `${month}/${day}`
     };
   });
 
