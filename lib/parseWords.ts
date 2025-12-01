@@ -5,6 +5,7 @@ export interface Word {
   id: string;
   word: string;
   meaning: string;
+  phonetic?: string; // 発音記号（オプション）
 }
 
 export function parseWordsFromFile(): Word[] {

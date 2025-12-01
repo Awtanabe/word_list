@@ -21,6 +21,7 @@ export default function Quiz() {
   const [showMeaning, setShowMeaning] = useState(false);
   const [progress, setProgress] = useState<WordProgress[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [phonetics, setPhonetics] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     // 音声エンジンを事前に読み込む（精度向上のため）
@@ -179,6 +180,55 @@ export default function Quiz() {
     setShowMeaning(true);
   };
 
+  // 発音記号を取得する関数
+  const fetchPhonetic = async (word: string) => {
+    if (phonetics.has(word)) {
+      return phonetics.get(word);
+    }
+
+    try {
+      const response = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.length > 0 && data[0].phonetic) {
+          const phonetic = data[0].phonetic;
+          setPhonetics(prev => new Map(prev).set(word, phonetic));
+          return phonetic;
+        }
+        // phoneticがない場合、phonetics配列から取得を試みる
+        if (data && data.length > 0 && data[0].phonetics && data[0].phonetics.length > 0) {
+          const phonetic = data[0].phonetics.find((p: any) => p.text)?.text;
+          if (phonetic) {
+            setPhonetics(prev => new Map(prev).set(word, phonetic));
+            return phonetic;
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch phonetic:', error);
+    }
+    return null;
+  };
+
+  // 現在の単語と次の数個の単語の発音記号を事前取得
+  useEffect(() => {
+    if (unansweredWords.length === 0) return;
+
+    // 現在の単語と次の5個の単語の発音記号を並列で取得
+    const wordsToFetch = unansweredWords
+      .slice(currentWordIndex, currentWordIndex + 6)
+      .filter(word => !phonetics.has(word.word))
+      .map(word => word.word);
+
+    // 並列で取得（APIレート制限を考慮して少し間隔を空ける）
+    wordsToFetch.forEach((word, index) => {
+      setTimeout(() => {
+        fetchPhonetic(word);
+      }, index * 100); // 100ms間隔でリクエスト
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentWordIndex, unansweredWords]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-50 to-pink-50">
@@ -216,9 +266,20 @@ export default function Quiz() {
                 単語 {currentWordIndex + 1} / {unansweredWords.length}
               </div>
               
-              <div className="text-3xl sm:text-4xl md:text-5xl font-bold text-gray-800 mb-6 text-center break-words">
+              <div className="text-3xl sm:text-4xl md:text-5xl font-bold text-gray-800 mb-2 text-center break-words">
                 {currentWord?.word}
               </div>
+              {/* 発音記号 */}
+              {currentWord && phonetics.has(currentWord.word) && (
+                <div className="text-lg sm:text-xl text-gray-500 mb-6 text-center">
+                  /{phonetics.get(currentWord.word)}/
+                </div>
+              )}
+              {currentWord && !phonetics.has(currentWord.word) && (
+                <div className="text-lg sm:text-xl text-gray-300 mb-6 text-center min-h-[28px]">
+                  {/* 読み込み中のプレースホルダー */}
+                </div>
+              )}
 
               {showMeaning ? (
                 <div className="w-full">
