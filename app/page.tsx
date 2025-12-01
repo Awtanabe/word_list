@@ -299,34 +299,40 @@ export default function Dashboard() {
               })()}
             </div>
             {/* グラフエリア */}
-            <div className="h-48 sm:h-64 ml-8 flex items-end justify-between gap-2 pb-8">
-              {chartData.map((data, index) => {
-                const heightPercent = displayMaxCount > 0 ? (data.count / displayMaxCount) * 100 : 0;
-                return (
-                  <div key={data.date} className="flex-1 flex flex-col items-center gap-2 h-full">
-                    <div className="relative w-full h-full flex items-end">
+            <div className="h-48 sm:h-64 ml-8 relative pb-8 overflow-x-auto">
+              <div className="min-w-full h-full flex items-end justify-between gap-1 sm:gap-2">
+                {chartData.map((data, index) => {
+                  const heightPercent = displayMaxCount > 0 ? (data.count / displayMaxCount) * 100 : 0;
+                  // スマホでは日付ラベルを間引く（5日ごと）
+                  const shouldShowDate = index === 0 || index === chartData.length - 1 || (index + 1) % 5 === 0;
+                  return (
+                    <div key={data.date} className="flex-1 min-w-[20px] sm:min-w-0 flex flex-col items-center gap-1 sm:gap-2 h-full">
+                      <div className="relative w-full h-full flex items-end">
+                        {data.count > 0 && (
+                          <div
+                            className="w-full bg-blue-400 rounded-t transition-all duration-500 ease-out hover:bg-blue-500"
+                            style={{ 
+                              height: `${heightPercent}%`,
+                              minHeight: '4px'
+                            }}
+                            title={`${data.date}: ${data.count}回`}
+                          />
+                        )}
+                      </div>
+                      {shouldShowDate && (
+                        <div className="text-[10px] sm:text-xs text-gray-600 text-center whitespace-nowrap">
+                          {data.displayDate}
+                        </div>
+                      )}
                       {data.count > 0 && (
-                        <div
-                          className="w-full bg-blue-400 rounded-t transition-all duration-500 ease-out hover:bg-blue-500"
-                          style={{ 
-                            height: `${heightPercent}%`,
-                            minHeight: '4px'
-                          }}
-                          title={`${data.date}: ${data.count}回`}
-                        />
+                        <div className="text-[10px] sm:text-xs font-semibold text-blue-600">
+                          {data.count}
+                        </div>
                       )}
                     </div>
-                    <div className="text-xs text-gray-600 text-center">
-                      {data.displayDate}
-                    </div>
-                    {data.count > 0 && (
-                      <div className="text-xs font-semibold text-blue-600">
-                        {data.count}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>
