@@ -299,14 +299,12 @@ export default function Dashboard() {
               })()}
             </div>
             {/* グラフエリア */}
-            <div className="h-48 sm:h-64 ml-8 relative pb-8 overflow-x-auto">
-              <div className="min-w-full h-full flex items-end justify-between gap-1 sm:gap-2">
+            <div className="h-48 sm:h-64 ml-8 relative pb-10 overflow-x-auto">
+              <div className="min-w-full h-full flex items-end justify-between gap-0.5 sm:gap-1 relative">
                 {chartData.map((data, index) => {
                   const heightPercent = displayMaxCount > 0 ? (data.count / displayMaxCount) * 100 : 0;
-                  // スマホでは日付ラベルを間引く（5日ごと）
-                  const shouldShowDate = index === 0 || index === chartData.length - 1 || (index + 1) % 5 === 0;
                   return (
-                    <div key={data.date} className="flex-1 min-w-[20px] sm:min-w-0 flex flex-col items-center gap-1 sm:gap-2 h-full">
+                    <div key={data.date} className="flex-1 min-w-[8px] sm:min-w-[10px] flex flex-col items-center h-full">
                       <div className="relative w-full h-full flex items-end">
                         {data.count > 0 && (
                           <div
@@ -319,14 +317,20 @@ export default function Dashboard() {
                           />
                         )}
                       </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* X軸ラベル - 別レイヤーで表示 */}
+              <div className="absolute bottom-0 left-0 right-0 flex justify-between items-start pt-2">
+                {chartData.map((data, index) => {
+                  // スマホでは日付ラベルを間引く（5日ごと）
+                  const shouldShowDate = index === 0 || index === chartData.length - 1 || (index + 1) % 5 === 0;
+                  return (
+                    <div key={data.date} className="flex-1 text-center">
                       {shouldShowDate && (
-                        <div className="text-[10px] sm:text-xs text-gray-600 text-center whitespace-nowrap">
+                        <div className="text-[10px] sm:text-xs text-gray-600 whitespace-nowrap">
                           {data.displayDate}
-                        </div>
-                      )}
-                      {data.count > 0 && (
-                        <div className="text-[10px] sm:text-xs font-semibold text-blue-600">
-                          {data.count}
                         </div>
                       )}
                     </div>
