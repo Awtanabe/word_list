@@ -93,10 +93,10 @@ export default function Dashboard() {
   
   const startAngle = 0;
 
-  // 折れ線グラフ用データ（過去7日間）
-  const getLast7Days = () => {
+  // 折れ線グラフ用データ（過去30日間）
+  const getLast30Days = () => {
     const days = [];
-    for (let i = 6; i >= 0; i--) {
+    for (let i = 29; i >= 0; i--) {
       const date = new Date();
       date.setDate(date.getDate() - i);
       days.push(date.toISOString().split('T')[0]);
@@ -104,8 +104,8 @@ export default function Dashboard() {
     return days;
   };
 
-  const last7Days = getLast7Days();
-  const chartData = last7Days.map(date => {
+  const last30Days = getLast30Days();
+  const chartData = last30Days.map(date => {
     const record = dailyAnsweredRecords.find(r => r.date === date);
     return {
       date,
@@ -255,7 +255,7 @@ export default function Dashboard() {
         <div className="mb-6 bg-white rounded-2xl shadow-lg p-4 sm:p-6 relative">
           <div className="flex justify-between items-start mb-4">
             <h2 className="text-lg sm:text-xl font-bold text-gray-800">
-              過去7日間の回答数
+              過去30日間の回答数
             </h2>
             {/* 累計回答数 - 右端上に表示 */}
             <div className="text-right">
